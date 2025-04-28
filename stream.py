@@ -1,98 +1,73 @@
 import os
 import pandas as pd
 import streamlit as st
-import tempfile
-from utils import *  # Assuming you have the necessary helper functions in utils.py
-
-#---------------------------------------------- Helper Function to Read CSV ----------------------------------------------
-
-# Function to check and read the CSV file
-def read_csv_with_check(csv_path):
-    try:
-        # Attempt to read the CSV with pandas
-        df = pd.read_csv(csv_path)
-        # Check if the dataframe is empty
-        if df.empty:
-            st.error("The CSV file is empty. Please upload a valid CSV.")
-            return None
-        return df
-    except Exception as e:
-        # Catch any exceptions (e.g., invalid format) and display an error message
-        st.error(f"Error reading CSV file: {str(e)}")
-        return None
+from sqlalchemy import create_engine
+from langchain.utilities import SQLDatabase
+from langchain_google_genai import ChatGoogleGenerativeAI as GenAI
+from langchain_community.agent_toolkits import create_sql_agent
 
 # Streamlit UI setup
-st.set_page_config(page_title="Chat with SQL Database", page_icon="🌐")
+st.set_page_config(layout="wide", page_title="AI SQL Agent")
 
-#---------------------------------------------- Sidebar (Key) ----------------------------------------------
+# Sidebar for Gemini API Key
+st.sidebar.title("🔑 Enter API Key")
+api_key = st.sidebar.text_input("Google Gemini API Key", type="password")
 
-# Create a sidebar for entering the Gemini API key.
-with st.sidebar:
-    st.markdown("# Enter your Gemini API Key here:")
-    gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
-    st.markdown("# Upload your CSV file:")
-    uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
+# File Uploader
+st.sidebar.title("📂 Upload CSV File")
+uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
 
-    if uploaded_file is not None:
-        # Save the uploaded file to a temporary location
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            csv_path = tmp_file.name
+# Main layout
+st.title("🤖 AI-Powered Text-to-SQL Converter")
+st.write("Enter a natural language query, and the AI will generate the SQL command.")
 
-        st.success("CSV file uploaded successfully!")
+if api_key and uploaded_file:
+    os.environ["GOOGLE_API_KEY"] = api_key
 
-        # Check the first few lines to preview the file
-        with open(csv_path, 'r') as f:
-            preview = f.readlines()[:5]  # Read the first 5 lines
-        st.write("Preview of the file contents:")
-        st.write(preview)
+    # Load CSV into DataFrame
+    df = pd.read_csv(uploaded_file)
 
-        # Try reading the CSV file with different settings
-        df = read_csv_with_check(csv_path)
-        
-        if df is not None:
-            # CSV loaded successfully, display the first few rows
-            st.success("CSV file loaded successfully!")
-            st.write(df.head())  # Display the first few rows of the dataframe
+    # Create SQLite database
+    engine = create_engine("sqlite:///uploaded_data.db")
+    df.to_sql("uploaded_table", engine, index=False, if_exists='replace')
+
+    # Initialize SQL database
+    db = SQLDatabase(engine=engine)
+
+    # Initialize AI Model
+    llm = GenAI(model="gemini-1.5-flash", temperature=0, google_api_key=api_key)
+
+    # Create SQL Agent
+    agent_executor = create_sql_agent(llm, db=db, verbose=True)
+
+    # Input query
+    query = st.text_input("🔍 Enter your question:")
+
+    if query:
+        response = agent_executor.invoke({"input": query})
+
+        # Check if 'intermediate_steps' exists, if not, try to get the query directly
+        if "intermediate_steps" in response:
+            # Extract SQL query from intermediate steps
+            sql_query = response["intermediate_steps"][0]["query"]
         else:
-            st.warning("Unable to process the CSV file.")
-
-#---------------------------------------------- Main Chat UI ----------------------------------------------
-
-# If everything is set up, show the input interface for user queries
-if uploaded_file and gemini_api_key:
-    st.title("🤖💬📊 Chat with SQL Database")
-    st.caption("🚀 Powered by Google Gemini and Langchain")
-
-    # Initialize session state if not present
-    if "messages" not in st.session_state:
-        st.session_state["messages"] = [{"role": "assistant", "content": "How may I help you?"}]
-
-    # Display chat messages
-    for msg in st.session_state.messages:
-        st.chat_message(msg["role"]).write(msg["content"])
-
-    # Handle user input
-    if query := st.chat_input("Ask a question in plain English..."):
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": query})
-        st.chat_message("user").write(query)
-
-        # Generate response
-        with st.spinner("Thinking..."):
-            if not gemini_api_key or not uploaded_file:
-                st.warning('Please enter your API key and upload a CSV file!', icon='⚠')
-                st.stop()
-            else:
-                answer, sql_query = get_result(query, gemini_api_key, df)  # Assuming get_result is in utils.py
-
-        # Show the assistant's response
-        st.session_state.messages.append({"role": "assistant", "content": answer})
-        st.chat_message("assistant").write(answer)
+            # Fallback: Extract the generated SQL directly from the response
+            sql_query = response.get("output", "⚠️ No query generated.")
 
         # Display the generated SQL query
-        st.write("**Generated SQL Query:**")
-        formatted_sql = sqlparse.format(sql_query, reindent=True, keyword_case='upper')
+        st.subheader("📝 Generated SQL Query:")
+        # Basic formatting using string manipulation
+        formatted_sql = sql_query.replace("SELECT", "\nSELECT").replace("FROM", "\nFROM").replace("WHERE", "\nWHERE")
         st.code(formatted_sql, language="sql")
+
+        # Execute the SQL query on the database and get the result
+        try:
+            query_result = pd.read_sql(sql_query, engine)
+            st.subheader("📊 Query Result:")
+            st.write(query_result)
+
+        except Exception as e:
+            st.error(f"⚠️ Error executing SQL query: {str(e)}")
+
 else:
     st.warning("Please enter your Gemini API key and upload a CSV file to proceed.")
