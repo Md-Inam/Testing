@@ -4,6 +4,23 @@ import streamlit as st
 import tempfile
 from utils import *  # Assuming you have the necessary helper functions in utils.py
 
+#---------------------------------------------- Helper Function to Read CSV ----------------------------------------------
+
+# Function to check and read the CSV file
+def read_csv_with_check(csv_path):
+    try:
+        # Attempt to read the CSV with pandas
+        df = pd.read_csv(csv_path)
+        # Check if the dataframe is empty
+        if df.empty:
+            st.error("The CSV file is empty. Please upload a valid CSV.")
+            return None
+        return df
+    except Exception as e:
+        # Catch any exceptions (e.g., invalid format) and display an error message
+        st.error(f"Error reading CSV file: {str(e)}")
+        return None
+
 # Streamlit UI setup
 st.set_page_config(page_title="Chat with SQL Database", page_icon="🌐")
 
