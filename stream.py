@@ -9,59 +9,48 @@ from langchain_community.agent_toolkits import create_sql_agent
 # Streamlit UI setup
 st.set_page_config(layout="wide", page_title="AI SQL Agent")
 
-# Sidebar for API Key & File Upload
+# Sidebar for Gemini API Key
 st.sidebar.title("🔑 Enter API Key")
 api_key = st.sidebar.text_input("Google Gemini API Key", type="password")
 
+# File Uploader
 st.sidebar.title("📂 Upload CSV File")
 uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
 
 # Main layout
 st.title("🤖 AI-Powered Text-to-SQL Converter")
-st.write("Enter a natural language query, and the AI will generate the SQL command and the result.")
+st.write("Enter a natural language query, and the AI will generate the SQL command.")
 
 if api_key and uploaded_file:
     os.environ["GOOGLE_API_KEY"] = api_key
 
-    # Limit file size
-    uploaded_file.seek(0, os.SEEK_END)
-    file_size = uploaded_file.tell() / (1024 * 1024)
-    uploaded_file.seek(0)
+    # Load CSV into DataFrame
+    df = pd.read_csv(uploaded_file)
 
-    if file_size > 50:
-        st.error("❌ File too large. Upload file <50MB.")
-        st.stop()
-
-    # Load CSV
-    try:
-        df = pd.read_csv(uploaded_file)
-    except Exception as e:
-        st.error(f"Error reading CSV: {str(e)}")
-        st.stop()
-
-    # Save to SQLite
+    # Create SQLite database
     engine = create_engine("sqlite:///uploaded_data.db")
     df.to_sql("uploaded_table", engine, index=False, if_exists='replace')
 
-    # Connect SQL
+    # Initialize SQL database
     db = SQLDatabase(engine=engine)
 
-    # AI Agent
+    # Initialize AI Model
     llm = GenAI(model="gemini-1.5-flash", temperature=0, google_api_key=api_key)
-    agent_executor = create_sql_agent(llm=llm, db=db, verbose=True)
 
+    # Create SQL Agent
+    agent_executor = create_sql_agent(llm, db=db, verbose=True)
+
+    # Input query
     query = st.text_input("🔍 Enter your question:")
 
     if query:
-        try:
-            response = agent_executor.invoke({"input": query})
+        response = agent_executor.invoke({"input": query})
+        
+        # Extract the SQL query
+        sql_query = response.get("output", "⚠️ No query generated.")
 
-            # Display Output (only answer available)
-            st.subheader("📊 Query Result:")
-            st.write(response.get("output", "⚠️ No result available."))
-
-        except Exception as e:
-            st.error(f"⚠️ Error: {str(e)}")
+        st.subheader("📝 Generated SQL Query:")
+        st.code(sql_query, language="sql")
 
 else:
-    st.warning("⚠️ Please enter your Gemini API key and upload a CSV file.")
+    st.warning("Please enter your Gemini API key and upload a CSV file to proceed.")
