@@ -1,11 +1,7 @@
-langchain
-langchain_community
-langchainhub 
-langgraph
-jupyterlab
-pandas
-langchain_google_genai
-rich
-sqlparse
-ipywidgets
 streamlit
+pandas
+sqlalchemy
+sqlparse
+langchain
+langchain-google-genai
+langchain-community
