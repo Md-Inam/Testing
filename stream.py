@@ -1,10 +1,9 @@
-#---------------------------------------------- Imports ----------------------------------------------
 import streamlit as st
 import tempfile
-from utils import *
+import sqlparse
+from utils import setup_database, setup_agent, get_result  # Assuming these are defined in utils.py
 
 #---------------------------------------------- Side Bar (Key) ----------------------------------------------
-
 st.set_page_config(page_title="Chat with SQL Database", page_icon="🌐")
 
 # Create a sidebar for entering the Gemini API key.
@@ -23,16 +22,15 @@ with st.sidebar:
             st.success("CSV file uploaded successfully!")
             # Set up the database and the agent using the temporary CSV file
             engine = setup_database(csv_path, uploaded_file.name)
+            
             if not gemini_api_key:
                 st.warning('Please enter your API key!', icon='⚠')
                 st.stop()
+            
+            # Set up the agent using the Gemini API key
             agent_executor, query_logger = setup_agent(engine, gemini_api_key)
             st.success("Agent is set up and ready to answer your questions!")
-    
-    "[🔑 Get your Gemini API key](https://ai.google.dev/gemini-api/docs)"
-    "[👨‍💻 View the source code](https://github.com/AnandThirwani8/Agentic-AI-Driven-Chat-with-SQL-Database)"
-    "[🤝 Let's Connect](https://www.linkedin.com/in/anandthirwani/)"
-    
+
     st.markdown("---")
     st.markdown("# About")
     st.markdown(
@@ -47,7 +45,7 @@ with st.sidebar:
 #---------------------------------------------- Chat UI ----------------------------------------------
 # Set up the web application interface.
 st.title("🤖💬📊 Chat with SQL Database")
-st.caption("🚀 Powered by Google Gemini and Langhchain")
+st.caption("🚀 Powered by Google Gemini and Langchain")
 
 # Initialize session state
 if "messages" not in st.session_state:
@@ -65,17 +63,19 @@ if query := st.chat_input():
 
     # Generate response 
     with st.spinner("Thinking..."):
-
         if not gemini_api_key or not uploaded_file:
             st.warning('Please enter your API key and upload a csv file !', icon='⚠')
             st.stop()
         else:
+            # Get result from the agent and query logger
             answer, sql_query = get_result(query, agent_executor, query_logger)
+        
+        # Format and display the assistant's answer
         msg = answer
+        st.session_state.messages.append({"role": "assistant", "content": msg})
+        st.chat_message("assistant").write(msg)
 
-    # Add assistant response to chat history
-    st.session_state.messages.append({"role": "assistant", "content": msg})
-    st.chat_message("assistant").write(msg)
-    st.write("**Generated SQL Query:**")
-    formatted_sql = sqlparse.format(sql_query, reindent=True, keyword_case='upper')
-    st.code(formatted_sql, language="sql")
+        # Display the generated SQL query
+        st.write("**Generated SQL Query:**")
+        formatted_sql = sqlparse.format(sql_query, reindent=True, keyword_case='upper')
+        st.code(formatted_sql, language="sql")
