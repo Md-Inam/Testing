@@ -44,28 +44,26 @@ if api_key and uploaded_file:
     query = st.text_input("🔍 Enter your question:")
 
     if query:
+        # Try to invoke the agent with the user's query
         response = agent_executor.invoke({"input": query})
 
-        # Check if 'intermediate_steps' exists, if not, try to get the query directly
-        if "intermediate_steps" in response:
-            # Extract SQL query from intermediate steps
-            sql_query = response["intermediate_steps"][0]["query"]
+        # Extract the generated SQL query from the response
+        sql_query = response.get("output", None)
+
+        if not sql_query:
+            st.warning("⚠️ No SQL query generated.")
         else:
-            # Fallback: Extract the generated SQL directly from the response
-            sql_query = response.get("output", "⚠️ No query generated.")
+            # Display the generated SQL query
+            st.subheader("📝 Generated SQL Query:")
+            st.code(sql_query, language="sql")
 
-        # Display the generated SQL query
-        st.subheader("📝 Generated SQL Query:")
-        st.code(sql_query, language="sql")
-
-        # Execute the SQL query on the database and get the result
-        try:
-            query_result = pd.read_sql(sql_query, engine)
-            st.subheader("📊 Query Result:")
-            st.write(query_result)
-
-        except Exception as e:
-            st.error(f"⚠️ Error executing SQL query: {str(e)}")
+            # Execute the SQL query on the database and get the result
+            try:
+                query_result = pd.read_sql(sql_query, engine)
+                st.subheader("📊 Query Result:")
+                st.write(query_result)
+            except Exception as e:
+                st.error(f"⚠️ Error executing SQL query: {str(e)}")
 
 else:
     st.warning("Please enter your Gemini API key and upload a CSV file to proceed.")
