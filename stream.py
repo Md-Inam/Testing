@@ -1,69 +1,81 @@
-import os
-import pandas as pd
+#---------------------------------------------- Imports ----------------------------------------------
 import streamlit as st
-from sqlalchemy import create_engine
-from langchain.utilities import SQLDatabase
-from langchain_google_genai import ChatGoogleGenerativeAI as GenAI
-from langchain_community.agent_toolkits import create_sql_agent
+import tempfile
+from utils import *
 
-# Streamlit UI setup
-st.set_page_config(layout="wide", page_title="AI SQL Agent")
+#---------------------------------------------- Side Bar (Key) ----------------------------------------------
 
-# Sidebar for Gemini API Key
-st.sidebar.title("🔑 Enter API Key")
-api_key = st.sidebar.text_input("Google Gemini API Key", type="password")
+st.set_page_config(page_title="Chat with SQL Database", page_icon="🌐")
 
-# File Uploader
-st.sidebar.title("📂 Upload CSV File")
-uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
+# Create a sidebar for entering the Gemini API key.
+with st.sidebar:
+    st.markdown("# Enter your Gemini API Key here:")
+    gemini_api_key = st.sidebar.text_input("Gemini API Key", type="password")
+    st.markdown("# Upload your CSV file:")
+    uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
 
-# Main layout
-st.title("🤖 AI-Powered Text-to-SQL Converter")
-st.write("Enter a natural language query, and the AI will generate the SQL command.")
+    if uploaded_file is not None:
+        # Save the uploaded file to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            csv_path = tmp_file.name
 
-if api_key and uploaded_file:
-    os.environ["GOOGLE_API_KEY"] = api_key
+            st.success("CSV file uploaded successfully!")
+            # Set up the database and the agent using the temporary CSV file
+            engine = setup_database(csv_path, uploaded_file.name)
+            if not gemini_api_key:
+                st.warning('Please enter your API key!', icon='⚠')
+                st.stop()
+            agent_executor, query_logger = setup_agent(engine, gemini_api_key)
+            st.success("Agent is set up and ready to answer your questions!")
+    
+    "[🔑 Get your Gemini API key](https://ai.google.dev/gemini-api/docs)"
+    "[👨‍💻 View the source code](https://github.com/AnandThirwani8/Agentic-AI-Driven-Chat-with-SQL-Database)"
+    "[🤝 Let's Connect](https://www.linkedin.com/in/anandthirwani/)"
+    
+    st.markdown("---")
+    st.markdown("# About")
+    st.markdown(
+        "🚀 This Text-to-SQL App lets users easily analyze CSV files by asking questions in plain English." 
+        "An AI agent creates and runs SQL queries for you and returns both the SQL query and the result."
+    )
+    st.markdown(
+        "You can contribute to the project on [GitHub](https://github.com/AnandThirwani8/Agentic-AI-Driven-Chat-with-SQL-Database) "  
+        "with your feedback and suggestions💡"
+    )
 
-    # Load CSV into DataFrame
-    df = pd.read_csv(uploaded_file)
+#---------------------------------------------- Chat UI ----------------------------------------------
+# Set up the web application interface.
+st.title("🤖💬📊 Chat with SQL Database")
+st.caption("🚀 Powered by Google Gemini and Langhchain")
 
-    # Create SQLite database
-    engine = create_engine("sqlite:///uploaded_data.db")
-    df.to_sql("uploaded_table", engine, index=False, if_exists='replace')
+# Initialize session state
+if "messages" not in st.session_state:
+    st.session_state["messages"] = [{"role": "assistant", "content": "How may I help you ?"}]
 
-    # Initialize SQL database
-    db = SQLDatabase(engine=engine)
+# Display chat messages
+for msg in st.session_state.messages:
+    st.chat_message(msg["role"]).write(msg["content"])
 
-    # Initialize AI Model
-    llm = GenAI(model="gemini-1.5-flash", temperature=0, google_api_key=api_key)
+# Handle user input
+if query := st.chat_input():
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": query})
+    st.chat_message("user").write(query)
 
-    # Create SQL Agent
-    agent_executor = create_sql_agent(llm, db=db, verbose=True)
+    # Generate response 
+    with st.spinner("Thinking..."):
 
-    # Input query
-    query = st.text_input("🔍 Enter your question:")
-
-    if query:
-        # Try to invoke the agent with the user's query
-        response = agent_executor.invoke({"input": query})
-
-        # Extract the generated SQL query from the response
-        sql_query = response.get("output", None)
-
-        if not sql_query:
-            st.warning("⚠️ No SQL query generated.")
+        if not gemini_api_key or not uploaded_file:
+            st.warning('Please enter your API key and upload a csv file !', icon='⚠')
+            st.stop()
         else:
-            # Display the generated SQL query
-            st.subheader("📝 Generated SQL Query:")
-            st.code(sql_query, language="sql")
+            answer, sql_query = get_result(query, agent_executor, query_logger)
+        msg = answer
 
-            # Execute the SQL query on the database and get the result
-            try:
-                query_result = pd.read_sql(sql_query, engine)
-                st.subheader("📊 Query Result:")
-                st.write(query_result)
-            except Exception as e:
-                st.error(f"⚠️ Error executing SQL query: {str(e)}")
-
-else:
-    st.warning("Please enter your Gemini API key and upload a CSV file to proceed.")
+    # Add assistant response to chat history
+    st.session_state.messages.append({"role": "assistant", "content": msg})
+    st.chat_message("assistant").write(msg)
+    st.write("**Generated SQL Query:**")
+    formatted_sql = sqlparse.format(sql_query, reindent=True, keyword_case='upper')
+    st.code(formatted_sql, language="sql")
