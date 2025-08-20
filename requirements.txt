@@ -5,4 +5,4 @@ sqlparse
 langchain
 langchain-google-genai
 langchain-community
-geminiai
+
